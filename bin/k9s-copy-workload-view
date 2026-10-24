@@ -1,0 +1,115 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+context=${1:?missing context}
+namespace=${2:?missing namespace}
+resource=${3:?missing resource type}
+selected=${4:?missing selected resource}
+command=
+
+get_json() {
+  kubectl --context "$context" -n "$namespace" get "$1" "$2" -o json
+}
+
+read_owner() {
+  local ref
+  ref=$(get_json "$1" "$2" |
+    jq -r 'first(.metadata.ownerReferences[]? | select(.controller == true)) // empty | [.kind, .name, .uid] | @tsv')
+  IFS=$'\t' read -r owner_kind owner_name owner_uid <<< "$ref"
+}
+
+selector_for() {
+  get_json "$1" "$2" | jq -r '
+    def expression:
+      if .operator == "In" then "\(.key) in (\(.values | join(",")))"
+      elif .operator == "NotIn" then "\(.key) notin (\(.values | join(",")))"
+      elif .operator == "Exists" then .key
+      elif .operator == "DoesNotExist" then "!\(.key)"
+      else error("unsupported selector operator") end;
+    if .kind == "ReplicationController" then
+      [.spec.selector | to_entries[] | "\(.key)=\(.value)"] | join(",")
+    else
+      [(.spec.selector.matchLabels // {} | to_entries[] | "\(.key)=\(.value)"),
+       (.spec.selector.matchExpressions // [] | .[] | expression)] | join(",")
+    end
+  '
+}
+
+set_selector_command() {
+  local target=$1 selector=$2
+  if [[ -n $selector ]]; then
+    printf -v command "kubectl --context %q -n %q get %q -l '%s'" \
+      "$context" "$namespace" "$target" "$selector"
+  fi
+}
+
+copy_to_clipboard() {
+  if command -v pbcopy >/dev/null 2>&1; then
+    pbcopy
+  elif command -v wl-copy >/dev/null 2>&1; then
+    wl-copy
+  elif command -v xclip >/dev/null 2>&1; then
+    xclip -selection clipboard
+  elif command -v xsel >/dev/null 2>&1; then
+    xsel --clipboard --input
+  else
+    printf 'No clipboard tool found (pbcopy, wl-copy, xclip, or xsel).\n' >&2
+    return 1
+  fi
+}
+
+# K9s exposes the selected item, so related views are inferred from its owner.
+case $resource in
+  pods|pod|po)
+    read_owner pod "$selected"
+    if [[ $owner_kind == ReplicaSet ]]; then
+      replicaset=$owner_name
+      read_owner replicaset "$replicaset"
+      if [[ $owner_kind != Deployment ]]; then
+        owner_kind=ReplicaSet
+        owner_name=$replicaset
+      fi
+    fi
+    case $owner_kind in
+      Deployment) workload=deployments ;;
+      StatefulSet) workload=statefulsets ;;
+      DaemonSet) workload=daemonsets ;;
+      Job) workload=jobs ;;
+      ReplicaSet) workload=replicasets ;;
+      ReplicationController) workload=replicationcontrollers ;;
+      *) workload= ;;
+    esac
+    if [[ -n $workload ]]; then
+      selector=$(selector_for "$workload" "$owner_name")
+      set_selector_command pods "$selector"
+    fi
+    ;;
+  jobs|job)
+    read_owner job "$selected"
+    if [[ $owner_kind == CronJob && -n $owner_uid ]]; then
+      jq_filter="'.items[] | select(any(.metadata.ownerReferences[]?; .uid == \$uid)) | .metadata.name'"
+      printf -v command \
+        'kubectl --context %q -n %q get jobs -o json | jq -r --arg uid %q %s | xargs -r kubectl --context %q -n %q get job' \
+        "$context" "$namespace" "$owner_uid" "$jq_filter" "$context" "$namespace"
+    fi
+    ;;
+  replicasets|replicaset|rs)
+    read_owner replicaset "$selected"
+    if [[ $owner_kind == Deployment ]]; then
+      selector=$(selector_for deployments "$owner_name")
+      set_selector_command replicasets "$selector"
+    fi
+    ;;
+esac
+
+if [[ -z $command ]]; then
+  if [[ $resource == workload || $resource == workloads ]]; then
+    resource=deployments,statefulsets,daemonsets,replicasets,jobs,cronjobs,pods,replicationcontrollers
+    printf -v command "kubectl --context %q -n %q get '%s'" \
+      "$context" "$namespace" "$resource"
+  else
+    printf -v command 'kubectl --context %q -n %q get %q' \
+      "$context" "$namespace" "$resource"
+  fi
+fi
+printf '%s\n' "$command" | copy_to_clipboard

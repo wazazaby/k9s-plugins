@@ -1,0 +1,20 @@
+shortCut: Ctrl-Y
+description: Copy related kubectl query
+scopes:
+  - pods
+  - jobs
+  - replicasets
+  - deployments
+  - statefulsets
+  - daemonsets
+  - cronjobs
+  - replicationcontrollers
+  - workload
+  - workloads
+command: k9s-copy-workload-view
+background: true
+args:
+  - $CONTEXT
+  - $NAMESPACE
+  - $RESOURCE_NAME
+  - $NAME
