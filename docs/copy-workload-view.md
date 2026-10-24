@@ -1,14 +1,12 @@
 # Copy workload view
 
-An unofficial k9s plugin that copies a **best-effort** `kubectl` command for workload views. Press `Ctrl-Y` on a selected workload row, then paste the command into a shell or a message.
-
-The plugin uses the selected object's owner and label selector to make useful commands for related Pods, Jobs, and ReplicaSets. For other workload lists it copies `kubectl get <resource> -n <namespace> --context <context>`.
+Press `Ctrl-Y` on a workload row to copy a **best-effort** `kubectl` command. The plugin uses owner references and label selectors to find related Pods, Jobs, and ReplicaSets. For other workloads, it copies a `kubectl get` command for the selected row's resource, namespace, and context.
 
 ## Install
 
-Requires k9s with standalone plugin snippets (v0.40.9 or newer), Bash 3.2+, `kubectl`, `jq`, and a clipboard command: `pbcopy` (macOS), `wl-copy`, `xclip`, or `xsel` (Linux).
+Requires k9s v0.40.9+ (standalone plugin snippets), Bash 3.2+, `kubectl`, `jq`, and a clipboard command: `pbcopy` (macOS), `wl-copy`, `xclip`, or `xsel` (Linux).
 
-1. From the repository root, put the executable on the `PATH` used to launch k9s:
+1. From the repository root, install the helper on the `PATH` used to launch k9s:
 
    ```sh
    mkdir -p "$HOME/.local/bin"
@@ -18,7 +16,7 @@ Requires k9s with standalone plugin snippets (v0.40.9 or newer), Bash 3.2+, `kub
 
    If the last command cannot find it, add `$HOME/.local/bin` to your shell's `PATH` before launching k9s.
 
-2. Run `k9s info` and find the **Plugins** file. Create a `plugins` directory next to it, then copy [`plugins/copy-workload-view.yaml`](../plugins/copy-workload-view.yaml) into that directory. For example, on macOS with k9s's default location:
+2. Run `k9s info` and find the **Plugins** file. Create a `plugins` directory beside it and copy [`plugins/copy-workload-view.yaml`](../plugins/copy-workload-view.yaml) there. On macOS with the default location:
 
    ```sh
    mkdir -p "$HOME/Library/Application Support/k9s/plugins"
@@ -28,8 +26,6 @@ Requires k9s with standalone plugin snippets (v0.40.9 or newer), Bash 3.2+, `kub
    On Linux the usual directory is `~/.config/k9s/plugins/`. The location shown by `k9s info` takes precedence. If `Ctrl-Y` is already assigned in one of these views, change `shortCut` in the snippet.
 
 3. Restart k9s. Press `?` in a supported view to confirm the shortcut appears.
-
-The repository keeps the snippet separate from your existing `plugins.yaml`, so installing it does not overwrite other plugins.
 
 ## What it copies
 
@@ -44,12 +40,8 @@ The plugin itself makes only read-only `kubectl get` requests. It copies the gen
 
 ## Limits
 
-k9s plugins expose the selected object but not the full navigation path. The command may differ from the screen: a plain Pods or Jobs list can copy a query for the selected item's owner, and an all-namespaces view is narrowed to the selected row's namespace. k9s text filters and table formatting are not exported. Check a pasted command before sharing it as an exact reproduction of a view.
+k9s plugins expose the selected object, but not the full navigation path. A plain Pods or Jobs list may copy a query for the selected item's owner. An all-namespaces view produces a command for the selected row's namespace. Text filters and table formatting are not exported. Check the command before sharing it as an exact reproduction of a view.
 
 ## Test
 
 Run `bash tests/copy-workload-view.sh` from the repository root. It uses sample Kubernetes objects and never contacts a cluster.
-
-## License
-
-MIT. See [LICENSE](../LICENSE).

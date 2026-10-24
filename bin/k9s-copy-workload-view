@@ -5,7 +5,17 @@ context=${1:?missing context}
 namespace=${2:?missing namespace}
 resource=${3:?missing resource type}
 selected=${4:?missing selected resource}
-command=
+printf -v kubectl_prefix 'kubectl --context %q -n %q' "$context" "$namespace"
+
+case $resource in
+  workload|workloads)
+    printf -v command "%s get '%s'" \
+      "$kubectl_prefix" 'deployments,statefulsets,daemonsets,replicasets,jobs,cronjobs,pods,replicationcontrollers'
+    ;;
+  *)
+    printf -v command '%s get %q' "$kubectl_prefix" "$resource"
+    ;;
+esac
 
 get_json() {
   kubectl --context "$context" -n "$namespace" get "$1" "$2" -o json
@@ -38,8 +48,7 @@ selector_for() {
 set_selector_command() {
   local target=$1 selector=$2
   if [[ -n $selector ]]; then
-    printf -v command "kubectl --context %q -n %q get %q -l '%s'" \
-      "$context" "$namespace" "$target" "$selector"
+    printf -v command "%s get %q -l '%s'" "$kubectl_prefix" "$target" "$selector"
   fi
 }
 
@@ -89,8 +98,8 @@ case $resource in
     if [[ $owner_kind == CronJob && -n $owner_uid ]]; then
       jq_filter="'.items[] | select(any(.metadata.ownerReferences[]?; .uid == \$uid)) | .metadata.name'"
       printf -v command \
-        'kubectl --context %q -n %q get jobs -o json | jq -r --arg uid %q %s | xargs -r kubectl --context %q -n %q get job' \
-        "$context" "$namespace" "$owner_uid" "$jq_filter" "$context" "$namespace"
+        '%s get jobs -o json | jq -r --arg uid %q %s | xargs -r %s get job' \
+        "$kubectl_prefix" "$owner_uid" "$jq_filter" "$kubectl_prefix"
     fi
     ;;
   replicasets|replicaset|rs)
@@ -102,14 +111,4 @@ case $resource in
     ;;
 esac
 
-if [[ -z $command ]]; then
-  if [[ $resource == workload || $resource == workloads ]]; then
-    resource=deployments,statefulsets,daemonsets,replicasets,jobs,cronjobs,pods,replicationcontrollers
-    printf -v command "kubectl --context %q -n %q get '%s'" \
-      "$context" "$namespace" "$resource"
-  else
-    printf -v command 'kubectl --context %q -n %q get %q' \
-      "$context" "$namespace" "$resource"
-  fi
-fi
 printf '%s\n' "$command" | copy_to_clipboard

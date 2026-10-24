@@ -50,11 +50,21 @@ expect_query() {
   fi
 }
 
-expect_query 'kubectl --context demo -n test get deployments' deployments web
-expect_query "kubectl --context demo -n test get pods -l 'app=web,tier in (api,front)'" pods web-abc
-expect_query "kubectl --context demo -n test get pods -l 'app=db'" pods db-0
-expect_query "kubectl --context demo -n test get replicasets -l 'app=web,tier in (api,front)'" replicasets web-rs
-expect_query 'kubectl --context demo -n test get jobs' jobs standalone
+base_query='kubectl --context demo -n test get'
+expect_query "$base_query deployments" deployments web
+workload_query="$base_query 'deployments,statefulsets,daemonsets,replicasets,jobs,cronjobs,pods,replicationcontrollers'"
+expect_query "$workload_query" workload web
+expect_query "$workload_query" workloads web
+expect_query "$base_query pods -l 'app=web,tier in (api,front)'" pods web-abc
+expect_query "$base_query pods -l 'app=db'" pods db-0
+expect_query "$base_query replicasets -l 'app=web,tier in (api,front)'" replicasets web-rs
+expect_query "$base_query jobs" jobs standalone
+
+"$repo_root/bin/k9s-copy-workload-view" 'demo context' 'test space' deployments web
+if [[ $(cat "$K9S_TEST_CLIPBOARD") != 'kubectl --context demo\ context -n test\ space get deployments' ]]; then
+  printf 'Context or namespace was not shell-escaped.\n' >&2
+  exit 1
+fi
 
 job_query=$(copy_query jobs backup-123)
 if [[ $job_query != *'--arg uid cron-uid'* || $job_query != *'xargs -r kubectl --context demo -n test get job' ]]; then
